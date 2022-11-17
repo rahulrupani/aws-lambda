@@ -1,0 +1,70 @@
+service: lambda-notification
+provider:
+  name: aws
+  runtime: python3.9
+  stage: ${opt:stage, 'Prd'}
+  region: Region # Update your region #***
+  timeout: 45
+  memorySize: 128
+  versionFunctions: false
+  iamRoleStatements:
+    - Effect: Allow
+      Action:
+        - logs:CreateLogGroup
+      Resource:
+        - ${self:custom.lambda_log_group_arn}
+    - Effect: Allow
+      Action:
+        - logs:CreateLogStream
+        - logs:StartQuery
+        - logs:PutLogEvents
+      Resource:
+        - ${self:custom.app_log_group_arn}
+        - ${self:custom.lambda_log_group_arn}/*
+    - Effect: Allow
+      Action:
+        - logs:GetQueryResults
+      Resource:
+        - ${self:custom.log_group_wildcard}
+    - Effect: Allow
+      Action:
+        - ses:SendEmail
+      Resource:
+        - ${self:custom.ses_arn}
+plugins:
+  - serverless-plugin-log-retention
+custom:
+  ## change parameters as needed
+  account: 123456789123 #your AWS Account number #***
+  account_name: test #your account name optional  #***
+  app_log_group_arn: "arn:aws:logs:${self:provider.region}:${self:custom.account}:YOUR-LOG-GROUP-NAME:*" # Update your loggroup ARN or logGroup name. #***
+  lambda_log_group_arn: "arn:aws:logs:${self:provider.region}:${self:custom.account}:log-group:/aws/lambda/${self:service}-${self:provider.stage}" # Update lambda loggroup name #***
+  log_group_wildcard: "*" # getquery requried permission on all resource
+  ses_arn: "arn:aws:ses:*:${self:custom.account}:identity/YourDomain.com"
+  logRetentionInDays: 30
+package:
+  patterns:
+    - '!./node_modules'
+    - '!./package*'
+layers:
+  json2html:
+    path: ../layer/
+    name: json2html
+    description: Layer used to convert json content to html.
+    compatibleRuntimes:
+      - python3.9
+functions:
+  lambda-notification:
+    name: ${self:service}-${self:provider.stage}
+    description: Function check all the block request from logs and send notification to Team.
+    timeout: 45
+    handler: ${self:service}/lambda_function.lambda_handler
+    package:
+      patterns: lambda-notification/handler
+    layers:
+      - !Ref Json2htmlLambdaLayer
+    events:
+    - schedule:
+        name: ${self:service}-${self:provider.stage}-event
+        description: 'Schedule to execute Lambda function to check all blocked request every hour'
+        rate: rate(1 hour)
